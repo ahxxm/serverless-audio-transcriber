@@ -24,8 +24,8 @@ volume = Volume.from_name(
 )
 
 
-app_gpu = gpu.L4()
-app_image = Image.from_registry("ahxxm/base:whisperx-cuda122")
+app_gpu = gpu.A10G()
+app_image = Image.from_registry("ahxxm/base:whisperx-modal")
 app = App(
     "whisperx-pod-transcriber",
     image=app_image,
@@ -66,7 +66,7 @@ def process_episode(url: str) -> str:
         "cuda", 
         language=CONFIG.DEFAULT_LANG,
         compute_type=CONFIG.COMPUTE_TYPE, 
-        download_root=CONFIG.MODEL_DIR,
+        # download_root=CONFIG.MODEL_DIR,  # just use the weights from docker image
     )
     download_episode(
         url=url,
@@ -83,6 +83,7 @@ def process_episode(url: str) -> str:
     with transcription_path.open("w") as f:
         f.write(transcript)
     volume.commit()
+    logger.info(f"Finished processing '{url}' with ID {audio_url_hash}.")
 
     try:
         del in_progress[url]
