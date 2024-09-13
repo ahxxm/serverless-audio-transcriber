@@ -2,7 +2,12 @@ FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
 
 COPY --from=mwader/static-ffmpeg:7.0.1 /ffmpeg /usr/bin/
 
-RUN apt update && apt install --no-install-suggests --no-install-recommends -y python3 python3-pip git wget && ln -s $(which python3) /usr/local/bin/python && python -m pip install torch==2.0 torchaudio==2.0.0 git+https://github.com/m-bain/whisperX.git
+RUN apt update && \
+  apt install --no-install-suggests --no-install-recommends -y python3 python3-pip git wget && \
+  ln -s $(which python3) /usr/local/bin/python && \
+  python -m pip install --no-cache-dir torch==2.0 torchaudio==2.0.0 git+https://github.com/m-bain/whisperX.git && \
+  apt clean && \
+  rm -rf /var/lib/apt/lists/*
 
 # download weights
 RUN (touch sample.wav && whisperx sample.wav --model large-v3) || echo "ok"
