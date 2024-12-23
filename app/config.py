@@ -1,4 +1,5 @@
 import logging
+import hashlib
 import pathlib
 
 
@@ -28,3 +29,15 @@ class CONFIG:
     DEFAULT_LANG = "en"
     COMPUTE_TYPE = "float16"
     BATCH_SIZE = 40  # A4500 can survive 40, yet T4 only 16?
+
+
+def get_sha224_hash(url: str) -> str:
+    m = hashlib.sha224()
+    m.update(url.encode("utf-8"))
+    return m.hexdigest()
+
+def get_paths(url: str):
+    url_hash = get_sha224_hash(url)
+    audio = CONFIG.RAW_AUDIO_DIR / url_hash
+    transcript = CONFIG.TRANSCRIPTIONS_DIR / f"{url_hash}.txt"
+    return audio, transcript, url_hash

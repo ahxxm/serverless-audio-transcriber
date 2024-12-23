@@ -8,8 +8,9 @@ from . import config
 from .main import (
     in_progress,
     process_episode,
+    volume,
 )
-from .podcast import get_sha224_hash
+from .podcast import download_episode
 
 logger = config.get_logger(__name__)
 web_app = FastAPI()
@@ -31,11 +32,16 @@ class TranscribeReq(BaseModel):
 async def transcribe_job(req: TranscribeReq):
     now = int(time.time())
     url = req.url
-    hash = get_sha224_hash(url)
-    transcript_file = config.CONFIG.TRANSCRIPTIONS_DIR / f"{hash}.txt"
+    audio_dest_path, transcript_file, url_hash = config.get_paths(url)
     if transcript_file.exists():
         logger.info(f"Found existing transcript for episode {url}")
-        return {"text": transcript_file.read_text(), "url_hash": hash, "url": url, "exec_time": 0.0}
+        return {"text": transcript_file.read_text(), "url_hash": url_hash, "url": url, "exec_time": 0.0}
+    
+    download_episode(
+        url=url,
+        destination=audio_dest_path,
+    )
+    volume.commit()
 
     try:
         inprogress_job = in_progress[url]
@@ -48,13 +54,13 @@ async def transcribe_job(req: TranscribeReq):
             logger.info(
                 f"Found existing, unexpired call ID {existing_call_id} for episode {url}"
             )
-            return {"call_id": existing_call_id, "status": "in_progress", "hash": hash}
+            return {"call_id": existing_call_id, "status": "in_progress", "hash": url_hash}
     except KeyError:
         pass
 
     in_progress[url] = InProgressJob(
-        call_id=hash, start_time=now
+        call_id=url_hash, start_time=now
     )
     call = process_episode.spawn(url)
     transcript = call.get()
-    return {"text": transcript, "url_hash": hash, "url": url, "exec_time": time.time() - now}
+    return {"text": transcript, "url_hash": url_hash, "url": url, "exec_time": time.time() - now}

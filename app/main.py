@@ -12,8 +12,7 @@ from modal import (
     gpu,
 )
 
-from .podcast import get_sha224_hash, download_episode
-from .config import get_logger, CONFIG
+from .config import get_logger, get_paths, CONFIG
 
 
 logger = get_logger(__name__)
@@ -23,9 +22,14 @@ volume = Volume.from_name(
     "dataset-cache-vol", create_if_missing=True
 )
 
+docker_images = {
+    "large-v3": "ahxxm/base:whisperx-modal",
+    "deepdml/faster-whisper-large-v3-turbo-ct2": "ahxxm/base:whisperx-turbo-modal"
+}
+
 
 app_gpu = gpu.A10G()
-app_image = Image.from_registry("ahxxm/base:whisperx-modal")
+app_image = Image.from_registry(docker_images[CONFIG.DEFAULT_MODEL])
 app = App(
     "whisperx-pod-transcriber",
     image=app_image,
@@ -48,18 +52,14 @@ in_progress = Dict.from_name(
 )
 def process_episode(url: str) -> str:
     import whisperx
-    CONFIG.RAW_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
-    CONFIG.TRANSCRIPTIONS_DIR.mkdir(parents=True, exist_ok=True)
-
-    audio_url_hash = get_sha224_hash(url)
-    audio_dest_path = CONFIG.RAW_AUDIO_DIR / audio_url_hash
-    transcription_path = CONFIG.TRANSCRIPTIONS_DIR / f"{audio_url_hash}.txt"
+    audio_dest_path, transcription_path, _ = get_paths(url)
     if transcription_path.exists():
         logger.info(
-            f"Transcription already exists for '{url}' with ID {audio_url_hash}."
+            f"Transcription already exists for '{url}'"
         )
         return
 
+    logger.info(f"Loading model {CONFIG.DEFAULT_MODEL}...")
     in_progress[url] = True
     model = whisperx.load_model(
         CONFIG.DEFAULT_MODEL, 
@@ -68,11 +68,6 @@ def process_episode(url: str) -> str:
         compute_type=CONFIG.COMPUTE_TYPE, 
         # download_root=CONFIG.MODEL_DIR,  # just use the weights from docker image
     )
-    download_episode(
-        url=url,
-        destination=audio_dest_path,
-    )
-    volume.commit()
 
     logger.info(
         f"Using the {CONFIG.DEFAULT_MODEL} model."
@@ -83,7 +78,7 @@ def process_episode(url: str) -> str:
     with transcription_path.open("w") as f:
         f.write(transcript)
     volume.commit()
-    logger.info(f"Finished processing '{url}' with ID {audio_url_hash}.")
+    logger.info(f"Finished processing '{url}'")
 
     try:
         del in_progress[url]

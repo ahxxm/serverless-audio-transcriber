@@ -4,6 +4,8 @@ This repo uses [WhisperX](https://github.com/m-bain/whisperX) to transcribe podc
 
 The shared base image `ahxxm/base:whisperx-modal` is built from `Dockerfile`.
 
+Alternative Docker image `ahxxm/base:whisperx-turbo-modal` comes with model [deepdml/faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2). To build and use this image, modify both Dockerfile and config.py.
+
 ## Deploy
 
 This can be hosted serverlessly on Modal or Runpod, the caller might reside in AWS Lambda or wherever it fits.

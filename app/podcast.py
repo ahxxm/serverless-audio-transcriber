@@ -1,16 +1,9 @@
-import hashlib
 import pathlib
 import urllib.request
 from typing import NamedTuple
 
 from .config import get_logger
 logger = get_logger(__name__)
-
-
-def get_sha224_hash(url: str) -> str:
-    m = hashlib.sha224()
-    m.update(url.encode("utf-8"))
-    return m.hexdigest()
 
 
 class DownloadResult(NamedTuple):
