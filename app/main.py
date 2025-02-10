@@ -34,6 +34,8 @@ app = App(
     "whisperx-pod-transcriber",
     image=app_image,
 )
+with app_image.imports():
+    import whisperx
 
 
 in_progress = Dict.from_name(
@@ -44,20 +46,19 @@ in_progress = Dict.from_name(
 @app.function(
     image=app_image,
     volumes={CONFIG.CACHE_DIR: volume},
-    timeout=900,
+    timeout=600,
     gpu=app_gpu,
     cpu=8.0,
-    memory=8192,
+    memory=32768,
     container_idle_timeout=2,  # shutdown immediately
 )
 def process_episode(url: str) -> str:
-    import whisperx
     audio_dest_path, transcription_path, _ = get_paths(url)
     if transcription_path.exists():
         logger.info(
             f"Transcription already exists for '{url}'"
         )
-        return
+        return transcription_path.read_text()
 
     logger.info(f"Loading model {CONFIG.DEFAULT_MODEL}...")
     in_progress[url] = True

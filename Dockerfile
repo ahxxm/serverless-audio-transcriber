@@ -1,13 +1,11 @@
-FROM nvidia/cuda:11.8.0-cudnn8-runtime-ubuntu22.04
+# cudnn<9 : https://github.com/m-bain/whisperX/issues/954
+# in the latest whisperx release, torch comes with cu12 and Python needs to be >=3.9(22.04), leading to this base image.
+FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
 
-COPY --from=mwader/static-ffmpeg:7.0.1 /ffmpeg /usr/bin/
+COPY --from=mwader/static-ffmpeg:7.1 /ffmpeg /usr/bin/
 
-RUN apt update && \
-  apt install --no-install-suggests --no-install-recommends -y python3 python3-pip git wget && \
-  ln -s $(which python3) /usr/local/bin/python && \
-  python -m pip install --no-cache-dir "numpy<2" torch==2.0 torchaudio==2.0.0 git+https://github.com/m-bain/whisperX.git && \
-  apt clean && \
-  rm -rf /var/lib/apt/lists/*
+RUN pip install --no-cache-di -U pip && \
+  pip install --no-cache-dir fastapi whisperx==3.3.1
 
 # download weights, turbo model is "deepdml/faster-whisper-large-v3-turbo-ct2"
 RUN (touch sample.wav && whisperx sample.wav --model large-v3) || echo "ok"
