@@ -25,10 +25,12 @@ class CONFIG:
     # Location of modal checkpoint.
     MODEL_DIR = pathlib.Path(CACHE_DIR, "model")
     # Transcribe options
-    DEFAULT_MODEL = "large-v3"
+    DEFAULT_MODEL = "large-v3-turbo"
     DEFAULT_LANG = "en"
     COMPUTE_TYPE = "float16"
-    BATCH_SIZE = 40  # A4500 can survive 40, yet T4 only 16?
+    # v3-turbo: 60 for L4/A10G, 80 for L40S didn't make it faster.
+    # v3: 40 for L4/A10G
+    BATCH_SIZE = 60
 
 
 def get_sha224_hash(url: str) -> str:

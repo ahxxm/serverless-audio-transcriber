@@ -1,10 +1,6 @@
 # Serverless Transcriber
 
-This repo uses [WhisperX](https://github.com/m-bain/whisperX) to transcribe podcasts serverlessly and efficiently: 1 minute -> 60 minutes audio, using `large-v3`. Some codes are from the official Modal example.
-
-The shared base image `ahxxm/base:whisperx-modal` is built from `Dockerfile`.
-
-Alternative Docker image `ahxxm/base:whisperx-turbo-modal` comes with model [deepdml/faster-whisper-large-v3-turbo-ct2](https://huggingface.co/deepdml/faster-whisper-large-v3-turbo-ct2). To build and use this image, modify both Dockerfile and config.py.
+This repo uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) to transcribe podcasts serverlessly and efficiently: 1 minute -> 60 minutes audio, using `large-v3-turbo`. Some codes are from the official Modal example.
 
 ## Deploy
 
@@ -58,11 +54,25 @@ modal serve app.main
 
 It reloads on code changes, press `Ctrl+C` to stop.
 
-## Benchmarks and Caveats
+## Benchmarks and Recommendations
 
-Modal charges startup loading time(around 25s) as well, A10G is recommended.
+Unlike Runpod, Modal charges for model loading time, incentivizing smaller images: fewer dependencies, distilled/turbo model.
 
-I used [this episode](https://www.podtrac.com/pts/redirect.mp3/pdst.fm/e/chrt.fm/track/G481GD/traffic.megaphone.fm/ADV6859367463.mp3) for benchmarks, its length is `01:05:44`.
+[This episode](https://www.podtrac.com/pts/redirect.mp3/pdst.fm/e/chrt.fm/track/G481GD/traffic.megaphone.fm/ADV6859367463.mp3) is used for benchmarks, its length is `01:05:44`.
+
+Language is hardcoded to `en`, skipping detection overhead.
+
+### (now) Faster-whisper + large-v3-turbo: Modal, L4/L40S
+
+| Graphic Card | Startup(s) | Execution(s) |
+|--------------|------------|--------------|
+| L4           | 2.8        | 54           |
+| A10G         | 2.2        | 47           |
+| L40S         | 2.1        | 27           |
+
+Batch sizes are all 60, increasing to 80 on L40S didn't make it faster.
+
+### (old) WhisperX + large-v3: A10G/A4500
 
 | Provider | CPU | Memory | Graphic Card | Batch Size | Charged GPU Seconds |
 |----------|-----|--------|--------------|------------|---------------------|

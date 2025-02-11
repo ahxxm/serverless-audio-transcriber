@@ -1,3 +1,4 @@
+# This file: for whisperx implementation on Modal
 # cudnn<9 : https://github.com/m-bain/whisperX/issues/954
 # in the latest whisperx release, torch comes with cu12 and Python needs to be >=3.9(22.04), leading to this base image.
 FROM pytorch/pytorch:2.3.1-cuda12.1-cudnn8-runtime
