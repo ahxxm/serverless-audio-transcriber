@@ -37,6 +37,8 @@ async def transcribe_job(req: TranscribeReq):
         logger.info(f"Found existing transcript for episode {url}")
         return {"text": transcript_file.read_text(), "url_hash": url_hash, "url": url, "exec_time": 0.0}
     
+    audio_dest_path.parent.mkdir(exist_ok=True, parents=True)
+    transcript_file.parent.mkdir(exist_ok=True, parents=True)
     download_episode(
         url=url,
         destination=audio_dest_path,
