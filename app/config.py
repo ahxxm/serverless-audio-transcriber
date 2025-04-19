@@ -27,7 +27,6 @@ class CONFIG:
     # Transcribe options
     DEFAULT_MODEL = "large-v3-turbo"
     DEFAULT_LANG = "en"
-    COMPUTE_TYPE = "float16"
     # v3-turbo: 60 for L4/A10G, 80 for L40S didn't make it faster.
     # v3: 40 for L4/A10G
     BATCH_SIZE = 60

@@ -22,7 +22,7 @@ volume = Volume.from_name(
     "dataset-cache-vol", create_if_missing=True
 )
 
-app_gpu = gpu.L40S()
+app_gpu = "L40S"
 app_image = (
     Image
     .micromamba(python_version="3.12")
@@ -31,7 +31,7 @@ app_image = (
     .micromamba_install("cudnn>=9", channels=["anaconda"], gpu=app_gpu)
     # prevent converting to fp32 on CPU
     .run_commands(
-        """python -c 'import faster_whisper; faster_whisper.WhisperModel("large-v3-turbo", compute_type="float16")'""", 
+        """python -c 'import faster_whisper; faster_whisper.WhisperModel("large-v3-turbo", compute_type="bfloat16")'""", 
         gpu=app_gpu
     )
 )
@@ -55,7 +55,7 @@ in_progress = Dict.from_name(
     gpu=app_gpu,
     cpu=8.0,
     memory=32768,
-    container_idle_timeout=2,  # shutdown immediately
+    scaledown_window=2,  # shutdown immediately
 )
 def process_episode(url: str) -> str:
     audio_dest_path, transcription_path, _ = get_paths(url)
@@ -64,7 +64,7 @@ def process_episode(url: str) -> str:
     model = faster_whisper.WhisperModel(
         CONFIG.DEFAULT_MODEL,
         device="cuda",
-        compute_type="float16",
+        compute_type="bfloat16",
     )
     batched = faster_whisper.BatchedInferencePipeline(model=model)
 

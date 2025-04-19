@@ -8,7 +8,7 @@ This can be hosted serverlessly on Modal or Runpod, the caller might reside in A
 
 ### Modal
 
-`modal deploy app.main` to deploy your app to Modal, get url, and call API for synchronous result.
+`modal deploy -m app.main` to deploy your app to Modal, get url, and call API for synchronous result.
 
 ```python
 import requests
@@ -72,6 +72,8 @@ Language is hardcoded to `en`, skipping detection overhead.
 
 Batch sizes are all 60, increasing to 80 on L40S didn't make it faster.
 
+`Time(s) ~= 0.38 * minutes + 2.5`
+
 ### (old) WhisperX + large-v3: A10G/A4500
 
 | Provider | CPU | Memory | Graphic Card | Batch Size | Charged GPU Seconds |
@@ -80,3 +82,5 @@ Batch sizes are all 60, increasing to 80 on L40S didn't make it faster.
 | Modal    | 8.0 | 8192MB | T4           | 16         | 179s                |
 | Modal    | 8.0 | 8192MB | L4           | 40         | 116s                |
 | Modal    | 8.0 | 8192MB | A10G         | 40         | 86s                 |
+
+`Time(s) ~= 0.94 * minutes + 5.9`
