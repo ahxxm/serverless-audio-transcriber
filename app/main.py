@@ -54,8 +54,10 @@ in_progress = Dict.from_name(
     timeout=600,
     gpu=app_gpu,
     cpu=8.0,
-    memory=32768,
+    memory=16384,
     scaledown_window=2,  # shutdown immediately
+    enable_memory_snapshot=True,
+    experimental_options={"enable_gpu_snapshot": True},
 )
 def process_episode(url: str) -> str:
     audio_dest_path, transcription_path, _ = get_paths(url)
