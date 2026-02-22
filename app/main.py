@@ -25,10 +25,12 @@ volume = Volume.from_name(
 app_gpu = "L40S"
 app_image = (
     Image
-    .micromamba(python_version="3.12")
-    .pip_install("fastapi", "faster-whisper==1.1.1", extra_options="--no-cache-dir")
-    # runtime: cudnn9, decode without ffmpeg
-    .micromamba_install("cudnn>=9", channels=["anaconda"], gpu=app_gpu)
+    .micromamba(python_version="3.13")
+    .pip_install("fastapi", "faster-whisper==1.2.1", extra_options="--no-cache-dir")
+    # micromamba 3.13 base image has stale CA certs, point ssl to certifi's bundle
+    .env({"SSL_CERT_FILE": "/opt/conda/lib/python3.13/site-packages/certifi/cacert.pem"})
+    # runtime: cudnn9 for ctranslate2, pin cuda 12 to match ctranslate2's libcublas
+    .micromamba_install("cudnn>=9", "cuda-version<13", channels=["anaconda"], gpu=app_gpu)
     # prevent converting to fp32 on CPU
     .run_commands(
         """python -c 'import faster_whisper; faster_whisper.WhisperModel("large-v3-turbo", compute_type="bfloat16")'""", 
