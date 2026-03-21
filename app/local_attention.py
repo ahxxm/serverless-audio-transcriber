@@ -1,10 +1,30 @@
 """Local (sliding-window) attention for nano-parakeet's FastConformer encoder.
 
 Port of NeMo's RelPositionMultiHeadAttentionLongformer to nano-parakeet's
-module interface. Replaces O(T²) full self-attention with O(T·w) banded
+module interface. Replaces O(T^2) full self-attention with O(T*w) banded
 attention, enabling transcription of long audio without OOM.
 
-Reference: https://github.com/NVIDIA/NeMo — nemo/collections/asr/parts/submodules/multi_head_attention.py
+Source: github.com/NVIDIA/NeMo
+  nemo/collections/asr/parts/submodules/multi_head_attention.py
+
+Ported verbatim:
+  _skew, _skew2, _chunk_overlap, _get_invalid_locations_mask,
+  _mask_invalid_locations, sliding_chunks_matmul_qk, sliding_chunks_matmul_pv
+
+Adapted to nano-parakeet's interface:
+  RelPositionLocalMHA.forward: same computation as NeMo's Longformer.forward.
+    nano-parakeet calls self_attn(x, pos_emb, pad_mask) with q=k=v=x projected
+    inline. NeMo calls self_attn(query, key, value, pad_mask, pos_emb, cache)
+    with forward_qkv() inherited from base class. Cache is for NeMo's streaming
+    inference; nano-parakeet runs full sequence, so cache is not ported.
+  RelPositionLocalMHA.__init__: matches nano-parakeet's RelPositionMHA param
+    layout (no bias, no dropout) so weights transfer via load_state_dict.
+  LocalRelPositionalEncoding: NeMo's LocalAttRelPositionalEncoding without
+    xscale, dropout, or dynamic extend_pe.
+
+Dropped:
+  Global attention (global_tokens, _compute_global_key_attn, etc.),
+  avoid_float16_autocast_context, SDPA backend dispatch.
 """
 
 import math
