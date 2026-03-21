@@ -29,7 +29,6 @@ Dropped:
 
 import math
 import types
-from functools import lru_cache
 
 import torch
 import torch.nn as nn
@@ -89,20 +88,26 @@ def _chunk_overlap(x: torch.Tensor, w: int) -> torch.Tensor:
     return x.as_strided(size=chunk_size, stride=chunk_stride)
 
 
-@lru_cache()
-def _get_invalid_locations_mask(w: int, device: torch.device):
+def _build_boundary_masks(w: int) -> tuple[torch.Tensor, torch.Tensor]:
+    """Build masks for positions near sequence edges with truncated windows.
+
+    Returns (beginning_mask, ending_mask), both [1, 1, w, w+1] bool tensors.
+    Registered as buffers on the module so they move with .to(device).
+    """
     diagonals_list = []
     for j in range(-w, 1):
-        diagonal_mask = torch.zeros(w, device='cpu', dtype=torch.uint8)
-        diagonal_mask[:-j] = 1
+        diagonal_mask = torch.zeros(w, dtype=torch.bool)
+        diagonal_mask[:-j] = True
         diagonals_list.append(diagonal_mask)
     mask = torch.stack(diagonals_list, dim=-1)[None, None, :, :]
-    ending_mask = mask.flip(dims=(2, 3)).bool().to(device)
-    return mask.bool().to(device), ending_mask
+    return mask, mask.flip(dims=(2, 3))
 
 
-def _mask_invalid_locations(input_tensor: torch.Tensor, w: int):
-    beginning_mask, ending_mask = _get_invalid_locations_mask(w, input_tensor.device)
+def _apply_boundary_masks(
+    input_tensor: torch.Tensor, w: int,
+    beginning_mask: torch.Tensor, ending_mask: torch.Tensor,
+):
+    """Mask invalid boundary locations in-place on a banded attention tensor."""
     seq_len = input_tensor.size(2)
     begin_input = input_tensor[:, :, :w, :w + 1]
     begin_input.masked_fill_(beginning_mask[:, :, :seq_len].expand(begin_input.size()), -float('inf'))
@@ -133,9 +138,7 @@ def sliding_chunks_matmul_qk(
     diagonal_attn[:, 1:, :, :w] = diagonal_chunk_attn[:, :, -(w + 1):-1, w + 1:]
     diagonal_attn[:, 0, 1:w, 1:w] = diagonal_chunk_attn[:, 0, :w - 1, 1 - w:]
 
-    diagonal_attn = diagonal_attn.view(bsz, num_heads, seqlen, 2 * w + 1)
-    _mask_invalid_locations(diagonal_attn, w)
-    return diagonal_attn
+    return diagonal_attn.view(bsz, num_heads, seqlen, 2 * w + 1)
 
 
 def sliding_chunks_matmul_pv(
@@ -184,6 +187,10 @@ class RelPositionLocalMHA(nn.Module):
         self.pos_bias_u = nn.Parameter(torch.zeros(n_heads, self.d_k))
         self.pos_bias_v = nn.Parameter(torch.zeros(n_heads, self.d_k))
         self.att_context_size = att_context_size
+        w = max(att_context_size)
+        beginning_mask, ending_mask = _build_boundary_masks(w)
+        self.register_buffer('_begin_mask', beginning_mask, persistent=False)
+        self.register_buffer('_end_mask', ending_mask, persistent=False)
 
     def forward(self, x: torch.Tensor, pos_emb: torch.Tensor,
                 pad_mask: torch.Tensor | None = None) -> torch.Tensor:
@@ -239,6 +246,9 @@ class RelPositionLocalMHA(nn.Module):
         ones = float_mask.new_ones(float_mask.size())
         d_mask = sliding_chunks_matmul_qk(ones, float_mask, w, padding_value=0.0)
         scores += d_mask
+
+        # mask boundary positions (truncated windows at sequence edges)
+        _apply_boundary_masks(scores, w, self._begin_mask, self._end_mask)
 
         attn = torch.softmax(scores, dim=-1).masked_fill(mask_col, 0.0)
         out = sliding_chunks_matmul_pv(attn, v, w)
