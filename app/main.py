@@ -46,6 +46,7 @@ app = App(
 )
 with app_image.imports():
     from nano_parakeet import from_pretrained
+    from .local_attention import enable_local_attention
 
 
 in_progress = Dict.from_name(
@@ -69,6 +70,7 @@ def process_episode(url: str) -> str:
     logger.info("Loading parakeet TDT model...")
     in_progress[url] = True
     model = from_pretrained()
+    enable_local_attention(model)
     logger.info("Transcribing with nano_parakeet.")
     transcript = model.transcribe(str(audio_dest_path))
     with transcription_path.open("w") as f:
