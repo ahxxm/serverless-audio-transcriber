@@ -81,11 +81,11 @@ def _skew2(x: torch.Tensor, padding_value: float) -> torch.Tensor:
 
 def _chunk_overlap(x: torch.Tensor, w: int) -> torch.Tensor:
     x = x.view(x.size(0), x.size(1) // (w * 2), w * 2, x.size(2))
-    chunk_size = list(x.size())
-    chunk_size[1] = chunk_size[1] * 2 - 1
-    chunk_stride = list(x.stride())
-    chunk_stride[1] = chunk_stride[1] // 2
-    return x.as_strided(size=chunk_size, stride=chunk_stride)
+    s0, s1, s2, s3 = x.stride()
+    return x.as_strided(
+        size=(x.size(0), x.size(1) * 2 - 1, w * 2, x.size(3)),
+        stride=(s0, s1 // 2, s2, s3),
+    )
 
 
 def _build_boundary_masks(w: int) -> tuple[torch.Tensor, torch.Tensor]:
