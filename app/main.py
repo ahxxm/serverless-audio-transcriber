@@ -1,6 +1,5 @@
 """
-whisper-pod-transcriber uses OpenAI's Whisper model(faster-whisper implementation) 
-to do speech-to-text transcription of podcasts efficiently.
+Pod transcriber using nano_parakeet for speech-to-text.
 """
 
 from modal import (
@@ -9,7 +8,8 @@ from modal import (
     Image,
     Volume,
     asgi_app,
-    gpu,
+    enter,
+    method,
 )
 
 from .config import get_logger, get_paths, CONFIG
@@ -26,15 +26,19 @@ app_gpu = "L40S"
 app_image = (
     Image
     .micromamba(python_version="3.13")
-    .pip_install("fastapi", "faster-whisper==1.2.1", extra_options="--no-cache-dir")
+    .apt_install("ffmpeg")
+    .env({"CONDA_OVERRIDE_CUDA": "12"})
+    .micromamba_install("pytorch", channels=["conda-forge"])
+    .pip_install("fastapi", "nano-parakeet", extra_options="--no-cache-dir")
     # micromamba 3.13 base image has stale CA certs, point ssl to certifi's bundle
-    .env({"SSL_CERT_FILE": "/opt/conda/lib/python3.13/site-packages/certifi/cacert.pem"})
-    # runtime: cudnn9 for ctranslate2, pin cuda 12 to match ctranslate2's libcublas
-    .micromamba_install("cudnn>=9", "cuda-version<13", channels=["anaconda"], gpu=app_gpu)
-    # prevent converting to fp32 on CPU
+    .env({
+        "SSL_CERT_FILE": "/opt/conda/lib/python3.13/site-packages/certifi/cacert.pem",
+        "HF_HOME": "/hf_cache",
+        "PYTORCH_ALLOC_CONF": "expandable_segments:True",
+    })
     .run_commands(
-        """python -c 'import faster_whisper; faster_whisper.WhisperModel("large-v3-turbo", compute_type="bfloat16")'""", 
-        gpu=app_gpu
+        "python -c 'from nano_parakeet import from_pretrained; from_pretrained()'",
+        gpu=app_gpu,
     )
 )
 app = App(
@@ -42,7 +46,8 @@ app = App(
     image=app_image,
 )
 with app_image.imports():
-    import faster_whisper
+    from nano_parakeet import from_pretrained
+    from .local_attention import enable_local_attention
 
 
 in_progress = Dict.from_name(
@@ -50,7 +55,7 @@ in_progress = Dict.from_name(
 )
 
 
-@app.function(
+@app.cls(
     image=app_image,
     volumes={CONFIG.CACHE_DIR: volume},
     timeout=600,
@@ -61,33 +66,36 @@ in_progress = Dict.from_name(
     enable_memory_snapshot=True,
     experimental_options={"enable_gpu_snapshot": True},
 )
-def process_episode(url: str) -> str:
-    audio_dest_path, transcription_path, _ = get_paths(url)
-    logger.info(f"Loading model {CONFIG.DEFAULT_MODEL}...")
-    in_progress[url] = True
-    model = faster_whisper.WhisperModel(
-        CONFIG.DEFAULT_MODEL,
-        device="cuda",
-        compute_type="bfloat16",
-    )
-    batched = faster_whisper.BatchedInferencePipeline(model=model)
+class Transcriber:
+    @enter(snap=True)
+    def load_model(self):
+        import os
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
+            "expandable_segments:True,"\
+            "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
+        logger.info("Loading parakeet TDT model...")
+        self.model = from_pretrained()
+        enable_local_attention(self.model)
+        logger.info("Model loaded, GPU state will be snapshotted.")
 
-    logger.info(
-        f"Using the {CONFIG.DEFAULT_MODEL} model."
-    )
-    segments, _ = batched.transcribe(audio_dest_path, batch_size=CONFIG.BATCH_SIZE, language=CONFIG.DEFAULT_LANG)
-    transcript = ''.join([segment.text for segment in segments])
-    with transcription_path.open("w") as f:
-        f.write(transcript)
-    volume.commit()
-    logger.info(f"Finished processing '{url}'")
+    @method()
+    def transcribe(self, url: str) -> str:
+        audio_dest_path, transcription_path, _ = get_paths(url)
+        in_progress[url] = True
+        logger.info("Transcribing with nano_parakeet.")
+        transcript = self.model.transcribe(str(audio_dest_path))
+        with transcription_path.open("w") as f:
+            f.write(transcript)
+        volume.commit()
+        logger.info(f"Finished processing '{url}'")
 
-    try:
-        del in_progress[url]
-    except KeyError:
-        pass
+        try:
+            del in_progress[url]
+        except KeyError:
+            pass
 
-    return transcript
+        return transcript
 
 
 @app.function(

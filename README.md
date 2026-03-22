@@ -20,49 +20,26 @@ result = requests.post(f"{url}/api/transcribe", json=json).json()
 transcript = result["text"]
 ```
 
-### Runpod
-
-Simply start a serverless endpoint with container image `ahxxm/base:whisperx-cuda122`, then get API key and call.
-
-```python
-API_ENDPOINT = "https://api.runpod.ai/v2/****/runsync"
-RUNPOD_KEY = ""
-auth_header = {
-    "Authorization": f"Bearer {RUNPOD_KEY}"
-}
-payload = {
-    "input": {
-        "audio": mp3_link,
-        "language": "en",
-        "batch_size": 40,
-    }
-}
-rsp = requests.post(API_ENDPOINT, headers=auth_header, json=payload).json()
-text = rsp["output"]["transcription"]
-costMs = rsp["executionTime"]
-delayMs = rsp["delayTime"]
-```
-
 ## Development
 
 To develop locally,
 
 ```shell
-pip install modal
-modal serve app.main
+uv sync
+uv run modal serve app.main
 ```
 
 It reloads on code changes, press `Ctrl+C` to stop.
 
 ## Benchmarks and Recommendations
 
-Unlike Runpod, Modal charges for model loading time, incentivizing smaller images: fewer dependencies, distilled/turbo model.
+Unlike Runpod, Modal charges for model loading time, incentivizing cache and smaller images: fewer dependencies, distilled/turbo model.
 
 [This episode](https://www.podtrac.com/pts/redirect.mp3/pdst.fm/e/chrt.fm/track/G481GD/traffic.megaphone.fm/ADV6859367463.mp3) is used for benchmarks, its length is `01:05:44`.
 
 Language is hardcoded to `en`, skipping detection overhead.
 
-### (now) Faster-whisper + large-v3-turbo: Modal, L4/L40S
+### (old) Faster-whisper + large-v3-turbo: L4/L40S
 
 | Graphic Card | Startup(s) | Execution(s) |
 |--------------|------------|--------------|
@@ -74,13 +51,12 @@ Batch sizes are all 60, increasing to 80 on L40S didn't make it faster.
 
 `Time(s) ~= 0.38 * minutes + 2.5`
 
-### (old) WhisperX + large-v3: A10G/A4500
+### (now) nano-parakeet + TDT-0.6b bundled: L40S
 
-| Provider | CPU | Memory | Graphic Card | Batch Size | Charged GPU Seconds |
-|----------|-----|--------|--------------|------------|---------------------|
-| Runpod   | ?   | ?      | RTX A4500    | 40         | 74.43s              |
-| Modal    | 8.0 | 8192MB | T4           | 16         | 179s                |
-| Modal    | 8.0 | 8192MB | L4           | 40         | 116s                |
-| Modal    | 8.0 | 8192MB | A10G         | 40         | 86s                 |
+The setup needs a few calls to cache both CPU and GPU state, so that execution logs skip loading(10s) and jump into transcribing.
 
-`Time(s) ~= 0.94 * minutes + 5.9`
+| Graphic Card | Startup(s) | Execution(s) |
+|--------------|------------|--------------|
+| L40S         | 7.8        | 12.1         |
+
+(Faster-whipser version should also benefit from correctly implemented caching, until whisper-v4.)
