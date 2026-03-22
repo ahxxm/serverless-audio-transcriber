@@ -8,6 +8,8 @@ from modal import (
     Image,
     Volume,
     asgi_app,
+    enter,
+    method,
 )
 
 from .config import get_logger, get_paths, CONFIG
@@ -72,7 +74,7 @@ in_progress = Dict.from_name(
 )
 
 
-@app.function(
+@app.cls(
     image=app_image,
     volumes={CONFIG.CACHE_DIR: volume},
     timeout=600,
@@ -83,30 +85,36 @@ in_progress = Dict.from_name(
     enable_memory_snapshot=True,
     experimental_options={"enable_gpu_snapshot": True},
 )
-def process_episode(url: str) -> str:
-    import os
-    os.environ["HF_HUB_OFFLINE"] = "1"
-    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
-        "expandable_segments:True,"\
-        "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
-    audio_dest_path, transcription_path, _ = get_paths(url)
-    logger.info("Loading parakeet TDT model...")
-    in_progress[url] = True
-    model = from_pretrained()
-    enable_local_attention(model)
-    logger.info("Transcribing with nano_parakeet.")
-    transcript = model.transcribe(str(audio_dest_path))
-    with transcription_path.open("w") as f:
-        f.write(transcript)
-    volume.commit()
-    logger.info(f"Finished processing '{url}'")
+class Transcriber:
+    @enter(snap=True)
+    def load_model(self):
+        import os
+        os.environ["HF_HUB_OFFLINE"] = "1"
+        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
+            "expandable_segments:True,"\
+            "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
+        logger.info("Loading parakeet TDT model...")
+        self.model = from_pretrained()
+        enable_local_attention(self.model)
+        logger.info("Model loaded, GPU state will be snapshotted.")
 
-    try:
-        del in_progress[url]
-    except KeyError:
-        pass
+    @method()
+    def transcribe(self, url: str) -> str:
+        audio_dest_path, transcription_path, _ = get_paths(url)
+        in_progress[url] = True
+        logger.info("Transcribing with nano_parakeet.")
+        transcript = self.model.transcribe(str(audio_dest_path))
+        with transcription_path.open("w") as f:
+            f.write(transcript)
+        volume.commit()
+        logger.info(f"Finished processing '{url}'")
 
-    return transcript
+        try:
+            del in_progress[url]
+        except KeyError:
+            pass
+
+        return transcript
 
 
 @app.function(

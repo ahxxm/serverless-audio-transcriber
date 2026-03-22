@@ -6,8 +6,8 @@ from pydantic import BaseModel
 
 from . import config
 from .main import (
+    Transcriber,
     in_progress,
-    process_episode,
     volume,
 )
 from .podcast import download_episode
@@ -60,6 +60,6 @@ async def transcribe_job(req: TranscribeReq):
     await in_progress.put.aio(url, InProgressJob(
         call_id=url_hash, start_time=now
     ))
-    call = await process_episode.spawn.aio(url)
+    call = await Transcriber().transcribe.spawn.aio(url)
     transcript = await call.get.aio()
     return {"text": transcript, "url_hash": url_hash, "url": url, "exec_time": time.time() - now}
