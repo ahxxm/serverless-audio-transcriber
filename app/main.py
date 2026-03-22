@@ -67,6 +67,7 @@ in_progress = Dict.from_name(
 )
 def process_episode(url: str) -> str:
     import os
+    os.environ["HF_HUB_OFFLINE"] = "1"
     os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
         "expandable_segments:True,"\
         "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
