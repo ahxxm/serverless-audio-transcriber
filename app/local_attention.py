@@ -8,8 +8,8 @@ Source: github.com/NVIDIA/NeMo
   nemo/collections/asr/parts/submodules/multi_head_attention.py
 
 Ported verbatim:
-  _skew, _skew2, _chunk_overlap, _get_invalid_locations_mask,
-  _mask_invalid_locations, sliding_chunks_matmul_qk, sliding_chunks_matmul_pv
+  _skew, _skew2, _chunk_overlap, sliding_chunks_matmul_qk,
+  sliding_chunks_matmul_pv
 
 Adapted to nano-parakeet's interface:
   RelPositionLocalMHA.forward: same computation as NeMo's Longformer.forward.
@@ -21,6 +21,12 @@ Adapted to nano-parakeet's interface:
     layout (no bias, no dropout) so weights transfer via load_state_dict.
   LocalRelPositionalEncoding: NeMo's LocalAttRelPositionalEncoding without
     xscale, dropout, or dynamic extend_pe.
+
+Rewritten:
+  _get_invalid_locations_mask / _mask_invalid_locations: NeMo uses lru_cache
+    with runtime .to(device) (CPU-GPU sync). Replaced with _build_boundary_masks
+    at init, registered as module buffers, applied once in forward after all
+    score contributions are combined.
 
 Dropped:
   Global attention (global_tokens, _compute_global_key_attn, etc.),
@@ -175,7 +181,7 @@ class RelPositionLocalMHA(nn.Module):
                  att_context_size: list[int] | None = None):
         super().__init__()
         if att_context_size is None:
-            att_context_size = [256, 256]
+            att_context_size = [512, 512]
         self.h = n_heads
         self.d_k = d_model // n_heads
         self.s_d_k = math.sqrt(self.d_k)
@@ -287,12 +293,13 @@ def enable_local_attention(model, att_context_size: list[int] | None = None):
     Args:
         model: ParakeetTDT from from_pretrained().
         att_context_size: [left, right] in encoder frames (1 frame = 80 ms).
-            Default [256, 256] ≈ 20 s context each side.
+            Default [512, 512] ~= 41 s context each side.
+            Peak measured VRAM ~13GB for 80min audio.
     """
     if getattr(model, '_local_attention_enabled', False):
         return
     if att_context_size is None:
-        att_context_size = [256, 256]
+        att_context_size = [512, 512]
 
     encoder = model.encoder
     d_model = encoder.layers[0].self_attn.linear_q.in_features
