@@ -58,3 +58,5 @@ The setup needs a few calls to cache both CPU and GPU state, so that execution l
 | Graphic Card | Startup(s) | Execution(s) |
 |--------------|------------|--------------|
 | L40S         | 7.8        | 12.1         |
+
+(Faster-whipser version should also benefit from correctly implemented caching, until whisper-v4.)

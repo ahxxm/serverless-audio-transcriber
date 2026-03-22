@@ -26,24 +26,6 @@ app_gpu = "L40S"
 app_image = (
     Image
     .micromamba(python_version="3.13")
-    .env({
-        "CONDA_OVERRIDE_CUDA": "12",
-        "SSL_CERT_FILE": "/opt/conda/lib/python3.13/site-packages/certifi/cacert.pem",
-        "HF_HOME": "/hf_cache",
-        "PYTORCH_ALLOC_CONF": "expandable_segments:True",
-    })
-    .run_commands(
-        "apt-get update && apt-get install -y --no-install-recommends ffmpeg && rm -rf /var/lib/apt/lists/*"
-        " && micromamba install -y -n base pytorch -c conda-forge && micromamba clean -afy"
-        " && pip install --no-cache-dir fastapi nano-parakeet"
-        " && python -c 'from nano_parakeet import from_pretrained; from_pretrained()'",
-        gpu=app_gpu,
-    )
-)
-"""
-app_image = (
-    Image
-    .micromamba(python_version="3.13")
     .apt_install("ffmpeg")
     .env({"CONDA_OVERRIDE_CUDA": "12"})
     .micromamba_install("pytorch", channels=["conda-forge"])
@@ -59,7 +41,6 @@ app_image = (
         gpu=app_gpu,
     )
 )
-"""
 app = App(
     "whisperx-pod-transcriber",
     image=app_image,
