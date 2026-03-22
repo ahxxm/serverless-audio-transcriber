@@ -66,6 +66,10 @@ in_progress = Dict.from_name(
     experimental_options={"enable_gpu_snapshot": True},
 )
 def process_episode(url: str) -> str:
+    import os
+    os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
+        "expandable_segments:True,"\
+        "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
     audio_dest_path, transcription_path, _ = get_paths(url)
     logger.info("Loading parakeet TDT model...")
     in_progress[url] = True

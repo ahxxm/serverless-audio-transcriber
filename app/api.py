@@ -43,26 +43,23 @@ async def transcribe_job(req: TranscribeReq):
         url=url,
         destination=audio_dest_path,
     )
-    volume.commit()
+    await volume.commit.aio()
 
-    try:
-        inprogress_job = in_progress[url]
-        # NB: runtime type check is to handle present of old `str` values that didn't expire.
-        if (
-            isinstance(inprogress_job, InProgressJob)
-            and (now - inprogress_job.start_time) < MAX_JOB_AGE_SECS
-        ):
-            existing_call_id = inprogress_job.call_id
-            logger.info(
-                f"Found existing, unexpired call ID {existing_call_id} for episode {url}"
-            )
-            return {"call_id": existing_call_id, "status": "in_progress", "hash": url_hash}
-    except KeyError:
-        pass
+    # NB: runtime type check is to handle presence of old `str` values that didn't expire.
+    inprogress_job = await in_progress.get.aio(url)
+    if (
+        isinstance(inprogress_job, InProgressJob)
+        and (now - inprogress_job.start_time) < MAX_JOB_AGE_SECS
+    ):
+        existing_call_id = inprogress_job.call_id
+        logger.info(
+            f"Found existing, unexpired call ID {existing_call_id} for episode {url}"
+        )
+        return {"call_id": existing_call_id, "status": "in_progress", "hash": url_hash}
 
-    in_progress[url] = InProgressJob(
+    await in_progress.put.aio(url, InProgressJob(
         call_id=url_hash, start_time=now
-    )
-    call = process_episode.spawn(url)
-    transcript = call.get()
+    ))
+    call = await process_episode.spawn.aio(url)
+    transcript = await call.get.aio()
     return {"text": transcript, "url_hash": url_hash, "url": url, "exec_time": time.time() - now}
