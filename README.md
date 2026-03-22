@@ -1,10 +1,10 @@
 # Serverless Transcriber
 
-This repo uses [faster-whisper](https://github.com/SYSTRAN/faster-whisper) to transcribe podcasts serverlessly and efficiently: 1 minute -> 60 minutes audio, using `large-v3-turbo`. Some codes are from the official Modal example.
+This repo uses [nano-parakeet](https://github.com/andimarafioti/nano-parakeet) to transcribe podcasts serverlessly and efficiently: 20 seconds -> 60 minutes audio, using `parakeet-tdt-0.6b-v3`. Some codes are from the official Modal example.
 
 ## Deploy
 
-This can be hosted serverlessly on Modal or Runpod, the caller might reside in AWS Lambda or wherever it fits.
+This can be hosted serverlessly on Modal, the caller might reside in AWS Lambda or wherever it fits.
 
 ### Modal
 
