@@ -1,31 +1,24 @@
 import pathlib
-import urllib.request
-from typing import NamedTuple
+
+import requests
+from requests.adapters import HTTPAdapter, Retry
 
 from .config import get_logger
 logger = get_logger(__name__)
 
+# Set a user agent to avoid 403 response from some podcast audio servers.
+_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36"
+}
 
-class DownloadResult(NamedTuple):
-    data: bytes
-    # Helpful to store and transmit when uploading to cloud bucket.
-    content_type: str
-
-
-def download_podcast_file(url: str) -> DownloadResult:
-    req = urllib.request.Request(
-        url,
-        data=None,
-        # Set a user agent to avoid 403 response from some podcast audio servers.
-        headers={
-            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36"
-        },
-    )
-    with urllib.request.urlopen(req) as response:
-        return DownloadResult(
-            data=response.read(),
-            content_type=response.headers["content-type"],
-        )
+# Retry transient connect/read/status failures; urllib3 also enforces Content-Length,
+# so a truncated body raises rather than producing a corrupt cache file.
+_session = requests.Session()
+_adapter = HTTPAdapter(max_retries=Retry(
+    total=4, backoff_factor=1, status_forcelist=(429, 500, 502, 503, 504)
+))
+_session.mount("http://", _adapter)
+_session.mount("https://", _adapter)
 
 
 def sizeof_fmt(num, suffix="B") -> str:
@@ -36,25 +29,16 @@ def sizeof_fmt(num, suffix="B") -> str:
     return "%.1f%s%s" % (num, "Yi", suffix)
 
 
-def download_episode(
-    url: str, destination: pathlib.Path, overwrite: bool = False
-) -> None:
-    logger.info(f"Downloading episode from {url} to {destination}.")
+def download_episode(url: str, destination: pathlib.Path) -> None:
     if destination.exists():
-        if overwrite:
-            logger.info(
-                f"Audio file exists at {destination} but overwrite option is specified."
-            )
-        else:
-            logger.info(
-                f"Audio file exists at {destination}, skipping download."
-            )
-            return
+        logger.info(f"Audio already cached at {destination}, skipping download.")
+        return
 
-    podcast_download_result = download_podcast_file(url=url)
-    humanized_bytes_str = sizeof_fmt(num=len(podcast_download_result.data))
-    logger.info(f"Downloaded {humanized_bytes_str} episode from URL.")
-    with open(destination, "wb") as f:
-        f.write(podcast_download_result.data)
-    logger.info(f"Stored audio episode at {destination}.")
-
+    response = _session.get(url, headers=_HEADERS, timeout=60)
+    response.raise_for_status()
+    # write to a temp sibling then rename, atomic on the same filesystem so the
+    # cache never holds a partial file
+    tmp = destination.with_name(destination.name + ".partial")
+    tmp.write_bytes(response.content)
+    tmp.rename(destination)
+    logger.info(f"Downloaded {sizeof_fmt(len(response.content))} from {url} to {destination}.")
