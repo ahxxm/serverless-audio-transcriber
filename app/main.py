@@ -27,14 +27,16 @@ app_image = (
     Image
     .micromamba(python_version="3.13")
     .apt_install("ffmpeg")
-    .env({"CONDA_OVERRIDE_CUDA": "12"})
+    .env({"CONDA_OVERRIDE_CUDA": "13"})
     .micromamba_install("pytorch", channels=["conda-forge"])
     .pip_install("fastapi", "nano-parakeet", extra_options="--no-cache-dir")
-    # micromamba 3.13 base image has stale CA certs, point ssl to certifi's bundle
     .env({
-        "SSL_CERT_FILE": "/opt/conda/lib/python3.13/site-packages/certifi/cacert.pem",
         "HF_HOME": "/hf_cache",
-        "PYTORCH_ALLOC_CONF": "expandable_segments:True",
+        # single source of truth for the CUDA allocator (PYTORCH_ALLOC_CONF needs torch>=2.9),
+        # read at build-time download and at runtime, replaces the runtime os.environ override
+        "PYTORCH_ALLOC_CONF":
+            "expandable_segments:True,"
+            "roundup_power2_divisions:[32:256,64:128,256:64,>:32]",
     })
     .run_commands(
         "python -c 'from nano_parakeet import from_pretrained; from_pretrained()'",
@@ -71,12 +73,9 @@ class Transcriber:
     def load_model(self):
         import os
         os.environ["HF_HUB_OFFLINE"] = "1"
-        os.environ["PYTORCH_CUDA_ALLOC_CONF"] = \
-            "expandable_segments:True,"\
-            "roundup_power2_divisions:[32:256,64:128,256:64,>:32]"
         logger.info("Loading parakeet TDT model...")
         self.model = from_pretrained()
-        enable_local_attention(self.model)
+        enable_local_attention(self.model, [1024, 1024])
         logger.info("Model loaded, GPU state will be snapshotted.")
 
     @method()
