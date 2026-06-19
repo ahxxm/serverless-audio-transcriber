@@ -64,7 +64,7 @@ in_progress = Dict.from_name(
     gpu=app_gpu,
     cpu=8.0,
     memory=16384,
-    scaledown_window=2,  # shutdown immediately
+    single_use_containers=True,  # shutdown immediately
     enable_memory_snapshot=True,
     experimental_options={"enable_gpu_snapshot": True},
 )
