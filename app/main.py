@@ -26,14 +26,25 @@ app_gpu = "L40S"
 app_image = (
     Image
     .micromamba(python_version="3.13")
-    .apt_install("ffmpeg")
+    # conda's openssl trusts the debian CA bundle, which the base image lacks
+    .run_commands(
+        "apt-get update && apt-get install -y --no-install-recommends ca-certificates && "
+        "rm -rf /var/lib/apt/lists/*"
+    )
     .env({"CONDA_OVERRIDE_CUDA": "13"})
-    .micromamba_install("pytorch", channels=["conda-forge"])
-    .pip_install("fastapi", "nano-parakeet", extra_options="--no-cache-dir")
+    # ~10G leaner image for faster startup
+    .run_commands(
+        "micromamba install -y -n base -c conda-forge pytorch ffmpeg && "
+        "micromamba clean --all --yes && "
+        # triton (torch.compile JIT) and magma (GPU linalg) are unused by the transcribe path
+        "rm -rf /opt/conda/pkgs"
+        " /opt/conda/lib/python3.13/site-packages/triton"
+        " /opt/conda/lib/libmagma.so*"
+    )
+    .pip_install("fastapi", "nano-parakeet", "requests", extra_options="--no-cache-dir")
     .env({
         "HF_HOME": "/hf_cache",
-        # single source of truth for the CUDA allocator (PYTORCH_ALLOC_CONF needs torch>=2.9),
-        # read at build-time download and at runtime, replaces the runtime os.environ override
+        # CUDA allocator config; the PYTORCH_ALLOC_CONF name requires torch >= 2.9
         "PYTORCH_ALLOC_CONF":
             "expandable_segments:True,"
             "roundup_power2_divisions:[32:256,64:128,256:64,>:32]",

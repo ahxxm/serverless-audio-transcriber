@@ -11,8 +11,7 @@ _HEADERS = {
     "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_9_3) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/35.0.1916.47 Safari/537.36"
 }
 
-# Retry transient connect/read/status failures; urllib3 also enforces Content-Length,
-# so a truncated body raises rather than producing a corrupt cache file.
+# urllib3 enforces Content-Length, so a truncated body raises instead of caching corrupt
 _session = requests.Session()
 _adapter = HTTPAdapter(max_retries=Retry(
     total=4, backoff_factor=1, status_forcelist=(429, 500, 502, 503, 504)
@@ -36,8 +35,7 @@ def download_episode(url: str, destination: pathlib.Path) -> None:
 
     response = _session.get(url, headers=_HEADERS, timeout=60)
     response.raise_for_status()
-    # write to a temp sibling then rename, atomic on the same filesystem so the
-    # cache never holds a partial file
+    # rename is atomic, so the cache never holds a partial file
     tmp = destination.with_name(destination.name + ".partial")
     tmp.write_bytes(response.content)
     tmp.rename(destination)
