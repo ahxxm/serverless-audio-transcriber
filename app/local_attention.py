@@ -199,7 +199,7 @@ class RelPositionLocalMHA(nn.Module):
         self.register_buffer('_end_mask', ending_mask, persistent=False)
 
     def forward(self, x: torch.Tensor, pos_emb: torch.Tensor,
-                pad_mask: torch.Tensor | None = None) -> torch.Tensor:
+                pad_mask: torch.Tensor) -> torch.Tensor:
         """
         x:        [B, T, d_model]
         pos_emb:  [1, 2w+1, d_model]
@@ -217,10 +217,8 @@ class RelPositionLocalMHA(nn.Module):
         q = F.pad(q, (0, 0, 0, pad_len))
         k = F.pad(k, (0, 0, 0, pad_len))
         v = F.pad(v, (0, 0, 0, pad_len))
-        if pad_mask is not None:
-            mask = F.pad(pad_mask, (0, pad_len), value=True)
-        else:
-            mask = torch.zeros(B, T + pad_len, dtype=torch.bool, device=x.device)
+        # the 2w alignment padding must be masked (value=True), else it leaks into attention
+        mask = F.pad(pad_mask, (0, pad_len), value=True)
 
         q_u = q + self.pos_bias_u.unsqueeze(1)
         q_v = q + self.pos_bias_v.unsqueeze(1)
@@ -272,11 +270,11 @@ def _local_attn_encoder_forward(self, features: torch.Tensor, lengths: torch.Ten
     x, pos_emb = self.pos_enc(x)
 
     B, T, _ = x.shape
-    pad = torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
-    mask = pad if pad.any() else None
+    # each layer pads time to a multiple of 2w; the mask must cover those frames too
+    pad_mask = torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
 
     for layer in self.layers:
-        x = layer(x, pos_emb, mask)
+        x = layer(x, pos_emb, pad_mask)
     return x, lengths
 
 
@@ -287,14 +285,15 @@ def _local_attn_encoder_forward(self, features: torch.Tensor, lengths: torch.Ten
 def enable_local_attention(model, att_context_size: list[int] | None = None):
     """Patch a ParakeetTDT model to use sliding-window local attention.
 
-    Replaces full O(T²) self-attention with O(T·w) local attention.
+    Replaces full O(T²) self-attention with O(T·w) local attention,
+    usage at ~2.88MB/s or 10GB/h.
     Weights are transferred from the existing attention modules (same param names).
 
     Args:
         model: ParakeetTDT from from_pretrained().
         att_context_size: [left, right] in encoder frames (1 frame = 80 ms).
             Default [512, 512] ~= 41 s context each side.
-            Peak measured VRAM ~13GB for 80min audio.
+            Peak measured allocated VRAM ~13GB for 80min audio.
     """
     if getattr(model, '_local_attention_enabled', False):
         return
