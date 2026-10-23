@@ -121,6 +121,11 @@ def _apply_boundary_masks(
     end_input.masked_fill_(ending_mask[:, :, -seq_len:].expand(end_input.size()), -float('inf'))
 
 
+def _windowed_key_mask(key_pad: torch.Tensor, w: int) -> torch.Tensor:
+    halo = F.pad(key_pad, (w, w), value=True)
+    return halo.unfold(1, 2 * w + 1, 1).unsqueeze(1)
+
+
 def sliding_chunks_matmul_qk(
     q: torch.Tensor, k: torch.Tensor, w: int, padding_value: float,
 ) -> torch.Tensor:
@@ -199,12 +204,14 @@ class RelPositionLocalMHA(nn.Module):
         self.register_buffer('_end_mask', ending_mask, persistent=False)
 
     def forward(self, x: torch.Tensor, pos_emb: torch.Tensor,
-                pad_mask: torch.Tensor) -> torch.Tensor:
+                mask: tuple[torch.Tensor, torch.Tensor]) -> torch.Tensor:
         """
         x:        [B, T, d_model]
         pos_emb:  [1, 2w+1, d_model]
-        pad_mask: [B, T] bool (True = padding)
+        mask: (window_key_mask, padded_mask) pair covering the 2w-aligned length;
+        built once per encoder forward and shared by all layers.
         """
+        window_key_mask, padded_mask = mask
         B, T, _ = x.shape
         w = max(self.att_context_size)
 
@@ -212,49 +219,30 @@ class RelPositionLocalMHA(nn.Module):
         k = self.linear_k(x).view(B, T, self.h, self.d_k).transpose(1, 2)
         v = self.linear_v(x).view(B, T, self.h, self.d_k).transpose(1, 2)
 
-        # pad time to multiple of 2w for chunked matmul
         pad_len = (2 * w - T % (2 * w)) % (2 * w)
         q = F.pad(q, (0, 0, 0, pad_len))
         k = F.pad(k, (0, 0, 0, pad_len))
         v = F.pad(v, (0, 0, 0, pad_len))
-        # the 2w alignment padding must be masked (value=True), else it leaks into attention
-        mask = F.pad(pad_mask, (0, pad_len), value=True)
 
         q_u = q + self.pos_bias_u.unsqueeze(1)
         q_v = q + self.pos_bias_v.unsqueeze(1)
 
-        # banded content attention  [B, h, T_pad, 2w+1]
         diagonal_ac = sliding_chunks_matmul_qk(q_u, k, w, padding_value=0.0)
 
-        # relative position scores  [B, h, T_pad, 2w+1]
         p = self.linear_pos(pos_emb).view(1, -1, self.h, self.d_k).transpose(1, 2)
-        diagonal_bd = torch.matmul(q_v, p.transpose(-2, -1))
-
-        # merge position info into content scores (left / right halves)
+        pos_scores = q_v.matmul(p.transpose(-2, -1))
         left_ctx = self.att_context_size[0]
         right_ctx = self.att_context_size[1]
-        diagonal_ac[:, :, :, :left_ctx] += diagonal_bd[:, :, :, :left_ctx]
-        diagonal_ac[:, :, :, -(right_ctx + 1):] += diagonal_bd[:, :, :, left_ctx:]
-
+        diagonal_ac[:, :, :, :left_ctx] += pos_scores[:, :, :, :left_ctx]
+        diagonal_ac[:, :, :, -(right_ctx + 1):] += pos_scores[:, :, :, left_ctx:]
         scores = diagonal_ac / self.s_d_k
 
-        # mask positions outside the asymmetric window
-        start_pos = w - left_ctx
-        end_pos = w + right_ctx
-        scores[:, :, :, :start_pos] = -INF_VAL
-        scores[:, :, :, end_pos + 1:] = -INF_VAL
-
-        # windowed padding mask
-        mask_col = mask.unsqueeze(1).unsqueeze(-1)  # [B, 1, T_pad, 1]
-        float_mask = mask_col.type_as(scores).masked_fill(mask_col, -INF_VAL)
-        ones = float_mask.new_ones(float_mask.size())
-        d_mask = sliding_chunks_matmul_qk(ones, float_mask, w, padding_value=0.0)
-        scores += d_mask
-
-        # mask boundary positions (truncated windows at sequence edges)
+        scores[:, :, :, :w - left_ctx] = -INF_VAL
+        scores[:, :, :, w + right_ctx + 1:] = -INF_VAL
+        scores.masked_fill_(window_key_mask, -INF_VAL)
         _apply_boundary_masks(scores, w, self._begin_mask, self._end_mask)
 
-        attn = torch.softmax(scores, dim=-1).masked_fill(mask_col, 0.0)
+        attn = torch.softmax(scores, dim=-1).masked_fill(padded_mask[:, None, :, None], 0.0)
         out = sliding_chunks_matmul_pv(attn, v, w)
         out = out.reshape(B, -1, self.h * self.d_k)[:, :T]
         return self.linear_out(out)
@@ -270,11 +258,20 @@ def _local_attn_encoder_forward(self, features: torch.Tensor, lengths: torch.Ten
     x, pos_emb = self.pos_enc(x)
 
     B, T, _ = x.shape
-    # each layer pads time to a multiple of 2w; the mask must cover those frames too
-    pad_mask = torch.arange(T, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
+    layers = list(self.layers)
+    if not layers:
+        return x, lengths
+    sizes = [tuple(layer.self_attn.att_context_size) for layer in layers]
+    if any(s != sizes[0] for s in sizes):
+        raise ValueError(f'mixed att_context_size across layers: {sizes}')
+    w = max(sizes[0])
+    pad_len = (2 * w - T % (2 * w)) % (2 * w)
+    T_pad = T + pad_len
+    key_pad = torch.arange(T_pad, device=x.device).unsqueeze(0) >= lengths.unsqueeze(1)
+    window = _windowed_key_mask(key_pad, w)
 
-    for layer in self.layers:
-        x = layer(x, pos_emb, pad_mask)
+    for layer in layers:
+        x = layer(x, pos_emb, (window, key_pad))
     return x, lengths
 
 
